@@ -106,22 +106,31 @@ class TestCalculateCostUnknownModel:
         calculate_cost("totally-made-up", 1, 2, 3, 4)
 
     def test_unknown_opus_falls_back_to_opus_pricing(self):
-        """A not-yet-tabled Opus release (e.g. claude-opus-4-9) must be billed
+        """A not-yet-tabled Opus release (e.g. claude-opus-5-2) must be billed
         at the Opus tier ($5/M input, $25/M output), NOT the generic Sonnet
         fallback — otherwise Opus usage is silently under-reported by ~40%."""
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = calculate_cost("claude-opus-4-9", 1_000_000, 1_000_000)
+            result = calculate_cost("claude-opus-5-2", 1_000_000, 1_000_000)
         assert _approx(result["input"], 5.0)
         assert _approx(result["output"], 25.0)
         # The warning should name the Opus family fallback, not Sonnet.
-        assert any("claude-opus-4-8" in str(w.message) for w in caught)
+        assert any("claude-opus-5" in str(w.message) for w in caught)
 
-    def test_opus_4_8_is_tabled_at_opus_rates_without_warning(self):
-        """claude-opus-4-8 is now an exact table entry: $5/$25, no warning."""
+    def test_opus_5_is_tabled_at_opus_rates_without_warning(self):
+        """claude-opus-5 is now an exact table entry: $5/$25, no warning."""
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = calculate_cost("claude-opus-4-8", 1_000_000, 1_000_000)
+            result = calculate_cost("claude-opus-5", 1_000_000, 1_000_000)
+        assert _approx(result["input"], 5.0)
+        assert _approx(result["output"], 25.0)
+        assert not any(issubclass(w.category, UserWarning) for w in caught)
+
+    def test_date_suffixed_model_resolves_to_base_model_without_warning(self):
+        """Date-suffixed model id (e.g. claude-opus-5-20260701) resolves to base model pricing without warning."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = calculate_cost("claude-opus-5-20260701", 1_000_000, 1_000_000)
         assert _approx(result["input"], 5.0)
         assert _approx(result["output"], 25.0)
         assert not any(issubclass(w.category, UserWarning) for w in caught)
