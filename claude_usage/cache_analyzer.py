@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from claude_usage.pricing import MODEL_PRICING
+from claude_usage.pricing import get_pricing
 
 
 # Anthropic's minimum cacheable block size (tokens).  Smaller prefixes are
@@ -196,7 +196,7 @@ def _compute_savings(tokens: int, occurrences: int, model: str) -> float:
     The returned figure is the difference (always non-negative for
     occurrences >= 2 since cache_read is < input).
     """
-    rates = MODEL_PRICING.get(model) or MODEL_PRICING["claude-sonnet-4-6"]
+    rates = get_pricing(model)
     per_m = tokens / 1_000_000.0
     uncached = per_m * occurrences * rates["input"]
     cached = (

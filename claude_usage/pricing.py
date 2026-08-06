@@ -19,6 +19,13 @@ from typing import Dict, Mapping
 # Prices are USD per 1,000,000 tokens.
 # Source: https://www.anthropic.com/pricing (July 2026)
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
+    # Opus 5 (2026): $5 input, $25 output.
+    "claude-opus-5": {
+        "input": 5.0,
+        "output": 25.0,
+        "cache_read": 0.50,
+        "cache_creation": 6.25,
+    },
     # Opus 4.8: $5 input, $25 output (same standard tier as 4.7). Note: Opus
     # "fast mode" bills at $10/$50, but Claude Code writes the same model id
     # for both, so we price the standard rate (fast mode isn't distinguishable
@@ -100,13 +107,13 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
 _FALLBACK_MODEL = "claude-sonnet-4-6"
 
 # Per-family fallback used when an exact model id is unknown but its family
-# name is recognisable from the id (e.g. a freshly released "claude-opus-4-8"
+# name is recognisable from the id (e.g. a freshly released "claude-opus-5-2"
 # before the table above is updated). Anthropic embeds the family in every
 # model id, so matching on it keeps a new point release billed at its real
 # tier instead of being silently under-reported at Sonnet rates. Each value
 # points at the most recent known member of that family.
 _FAMILY_FALLBACK: Dict[str, str] = {
-    "opus": "claude-opus-4-8",
+    "opus": "claude-opus-5",
     "fable": "claude-fable-5",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5-20251001",
@@ -119,10 +126,17 @@ _PER_MILLION = 1_000_000.0
 _WARNED_MODELS: set[str] = set()
 
 
+def _strip_date_suffix(model: str) -> str | None:
+    """If model ends with a 8-digit date suffix (e.g. ``-20260701``), strip it."""
+    if len(model) >= 9 and model[-9] == "-" and model[-8:].isdigit():
+        return model[:-9]
+    return None
+
+
 def _family_fallback_model(model: str) -> str | None:
     """Best-effort map an unknown model id to a known same-family model.
 
-    Anthropic model ids embed the family name (``claude-opus-4-8``,
+    Anthropic model ids embed the family name (``claude-opus-5``,
     ``claude-sonnet-4-6``), so a substring match lets a newly released point
     version inherit the correct pricing tier until ``MODEL_PRICING`` is
     updated. Returns ``None`` when no family token is recognised.
@@ -137,13 +151,17 @@ def _family_fallback_model(model: str) -> str | None:
 def _resolve_pricing(model: str) -> Dict[str, float]:
     """Return the pricing table for ``model``, warning once per unknown model.
 
-    Unknown exact ids are first resolved by *family* (so a new Opus release is
-    billed at the Opus tier, not Sonnet's), and only fall back to the generic
-    :data:`_FALLBACK_MODEL` when even the family is unrecognisable.
+    Unknown exact ids are first resolved by date suffix stripping or *family*
+    (so a new Opus release is billed at the Opus tier, not Sonnet's), and only
+    fall back to the generic :data:`_FALLBACK_MODEL` when even the family is
+    unrecognisable.
     """
     pricing = MODEL_PRICING.get(model)
     if pricing is not None:
         return pricing
+    base_model = _strip_date_suffix(model)
+    if base_model and base_model in MODEL_PRICING:
+        return MODEL_PRICING[base_model]
     fallback = _family_fallback_model(model) or _FALLBACK_MODEL
     if model not in _WARNED_MODELS:
         _WARNED_MODELS.add(model)
