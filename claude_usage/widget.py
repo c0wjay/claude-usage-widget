@@ -1381,6 +1381,12 @@ class ClaudeUsageApp(QObject):
         self.config["osd_position"] = "custom"
         self.config["osd_x"] = int(x)
         self.config["osd_y"] = int(y)
+        if hasattr(self.overlay, "_custom_screen_name") and self.overlay._custom_screen_name:
+            self.config["osd_screen_name"] = self.overlay._custom_screen_name
+        if hasattr(self.overlay, "_custom_rel_offset") and self.overlay._custom_rel_offset:
+            rx, ry = self.overlay._custom_rel_offset
+            self.config["osd_rel_x"] = int(rx)
+            self.config["osd_rel_y"] = int(ry)
         self._persist_config()
 
     def _on_overlay_scaled(self, scale: float) -> None:

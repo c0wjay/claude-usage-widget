@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -295,12 +295,20 @@ class UsageOverlay(QWidget):
         raw_pos = str(cfg.get("osd_position", OSD_POSITION_TOP_RIGHT))
         self._position: str = raw_pos if raw_pos in OSD_POSITIONS else OSD_POSITION_TOP_RIGHT
         self._custom_xy: tuple[int, int] | None = None
+        self._custom_screen_name: str | None = cfg.get("osd_screen_name")
+        self._custom_rel_offset: tuple[int, int] | None = None
         cx, cy = cfg.get("osd_x"), cfg.get("osd_y")
         if cx is not None and cy is not None:
             try:
                 self._custom_xy = (int(cx), int(cy))
             except (TypeError, ValueError):
                 self._custom_xy = None
+        rx, ry = cfg.get("osd_rel_x"), cfg.get("osd_rel_y")
+        if rx is not None and ry is not None:
+            try:
+                self._custom_rel_offset = (int(rx), int(ry))
+            except (TypeError, ValueError):
+                self._custom_rel_offset = None
         # Emitted after a drag so the controller can persist the new
         # custom coordinates to config. (scope, x, y) — scope is "custom".
         # Wired in widget.py.
@@ -564,46 +572,97 @@ class UsageOverlay(QWidget):
         else:
             self.resize(width, height)
 
+    def _clamp_to_screen_bounds(self, x: int, y: int, target_screen=None) -> tuple[int, int]:
+        """Clamp coordinate (x, y) so the widget stays 100% inside a valid screen.
+
+        Identifies the screen containing (x, y) or overlapping the widget, and
+        clamps the position within that screen's availableGeometry(). If no
+        screen matches (e.g. monitor unplugged), falls back to the primary screen.
+        """
+        screens = QApplication.screens()
+        primary = QApplication.primaryScreen()
+        if not screens or primary is None:
+            return x, y
+
+        w, h = self.width(), self.height()
+        pt = QPoint(x, y)
+        widget_rect = QRect(x, y, w, h)
+
+        if target_screen is None:
+            target_screen = QApplication.screenAt(pt)
+            if target_screen is None:
+                for s in screens:
+                    if s.geometry().intersects(widget_rect) or s.geometry().contains(pt):
+                        target_screen = s
+                        break
+
+        if target_screen is None:
+            target_screen = primary
+
+        geo = target_screen.availableGeometry()
+        clamped_x = max(geo.x(), min(x, geo.x() + geo.width() - w))
+        clamped_y = max(geo.y(), min(y, geo.y() + geo.height() - h))
+        return clamped_x, clamped_y
+
     def _move_to_default_position(self) -> None:
         """Anchor the overlay according to the configured ``_position``.
 
         Corner presets are recomputed against the current screen geometry so
         they stay correct across resolution changes; "custom" restores the
-        exact coordinates the user last dragged to (clamped onto the target
-        screen so unplugged monitors fall back safely).
+        relative coordinates on the target monitor the user last dragged to.
         """
-        screens = QApplication.screens()
         primary = QApplication.primaryScreen()
-        if not screens or primary is None:
+        if primary is None:
             return
 
         w, h = self.width(), self.height()
 
-        if self._position == OSD_POSITION_CUSTOM and self._custom_xy is not None:
-            cx, cy = self._custom_xy
-            pt = QPoint(cx, cy)
+        if self._position == OSD_POSITION_CUSTOM and (self._custom_xy is not None or self._custom_rel_offset is not None):
+            screens = QApplication.screens()
+            target_screen = None
 
-            # Find which screen currently contains the saved coordinate (cx, cy)
-            target_screen = QApplication.screenAt(pt)
-            if target_screen is None:
+            # 1. Match monitor by saved screen name
+            if getattr(self, "_custom_screen_name", None):
                 for s in screens:
-                    if s.geometry().contains(pt):
+                    if s.name() == self._custom_screen_name:
                         target_screen = s
                         break
 
-            # Fall back to primary screen if monitor was unplugged or off-screen
+            # 2. Fall back to finding screen by absolute coordinates
+            if target_screen is None and self._custom_xy is not None:
+                pt = QPoint(*self._custom_xy)
+                target_screen = QApplication.screenAt(pt)
+                if target_screen is None:
+                    for s in screens:
+                        if s.geometry().contains(pt):
+                            target_screen = s
+                            break
+
             if target_screen is None:
                 target_screen = primary
 
             geo = target_screen.availableGeometry()
-            # Clamp position so the widget stays fully on the target screen
-            x = max(geo.x(), min(cx, geo.x() + geo.width() - w))
-            y = max(geo.y(), min(cy, geo.y() + geo.height() - h))
+
+            # Restore using relative offset within target screen if available
+            if getattr(self, "_custom_rel_offset", None) is not None:
+                rel_dx, rel_dy = self._custom_rel_offset
+                target_x = geo.x() + rel_dx
+                target_y = geo.y() + rel_dy
+            elif self._custom_xy is not None:
+                target_x, target_y = self._custom_xy
+            else:
+                target_x, target_y = geo.x(), geo.y()
+
+            # Keep relative offset & screen name updated
+            self._custom_screen_name = target_screen.name()
+            self._custom_rel_offset = (target_x - geo.x(), target_y - geo.y())
+            self._custom_xy = (target_x, target_y)
+
+            x, y = self._clamp_to_screen_bounds(target_x, target_y, target_screen)
             self.move(x, y)
             return
 
         geo = primary.availableGeometry()
-
         left = geo.x() + OSD_MARGIN
         right = geo.x() + geo.width() - w - OSD_MARGIN
         top = geo.y() + OSD_MARGIN
@@ -615,7 +674,8 @@ class UsageOverlay(QWidget):
             OSD_POSITION_BOTTOM_RIGHT: (right, bottom),
         }
         x, y = anchors.get(self._position, (right, top))
-        self.move(x, y)
+        clamped_x, clamped_y = self._clamp_to_screen_bounds(x, y)
+        self.move(clamped_x, clamped_y)
 
     def set_position(self, position: str) -> None:
         """Switch to a named anchor preset and reposition immediately."""
@@ -772,7 +832,9 @@ class UsageOverlay(QWidget):
                 if window is not None:
                     self._system_move_started = window.startSystemMove()
         if self._dragging and not self._system_move_started and self._press_win_pos is not None:
-            self.move(self._press_win_pos + delta)
+            raw_pos = self._press_win_pos + delta
+            cx, cy = self._clamp_to_screen_bounds(raw_pos.x(), raw_pos.y())
+            self.move(cx, cy)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.LeftButton:
@@ -799,6 +861,15 @@ class UsageOverlay(QWidget):
             tl = self.frameGeometry().topLeft()
             self._position = OSD_POSITION_CUSTOM
             self._custom_xy = (tl.x(), tl.y())
+
+            target_screen = QApplication.screenAt(tl)
+            if target_screen is None:
+                target_screen = QApplication.primaryScreen()
+            if target_screen is not None:
+                geo = target_screen.availableGeometry()
+                self._custom_screen_name = target_screen.name()
+                self._custom_rel_offset = (tl.x() - geo.x(), tl.y() - geo.y())
+
             self.movedTo.emit(tl.x(), tl.y())
             self._apply_size(preserve_top_right=False)
             self.update()
@@ -838,6 +909,7 @@ class UsageOverlay(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._setup_screen_change_listeners()
         win = self.windowHandle()
         if win is not None and not getattr(self, "_screen_signal_connected", False):
             try:
@@ -846,9 +918,37 @@ class UsageOverlay(QWidget):
             except Exception:
                 pass
 
+    def _setup_screen_change_listeners(self) -> None:
+        """Listen to display topology & resolution changes on all monitors."""
+        try:
+            app = QApplication.instance()
+            if app is not None and not getattr(self, "_screen_topology_connected", False):
+                app.screenAdded.connect(self._on_screen_topology_changed)
+                app.screenRemoved.connect(self._on_screen_topology_changed)
+                self._screen_topology_connected = True
+
+            for s in QApplication.screens():
+                try:
+                    s.geometryChanged.connect(self._on_screen_topology_changed, Qt.UniqueConnection)
+                    s.availableGeometryChanged.connect(self._on_screen_topology_changed, Qt.UniqueConnection)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_screen_topology_changed(self, *args) -> None:
+        """Reposition and clamp the widget safely whenever screen resolution changes."""
+        if not self._dragging:
+            self._setup_screen_change_listeners()
+            self._apply_size(preserve_top_right=False)
+            self._move_to_default_position()
+            self.update()
+
     def _on_screen_changed(self, screen) -> None:
         if not self._dragging:
+            self._setup_screen_change_listeners()
             self._apply_size(preserve_top_right=False)
+            self._move_to_default_position()
             self.update()
 
     # ----------------------------------------------------------- painting
