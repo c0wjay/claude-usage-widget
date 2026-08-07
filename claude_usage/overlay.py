@@ -569,22 +569,40 @@ class UsageOverlay(QWidget):
 
         Corner presets are recomputed against the current screen geometry so
         they stay correct across resolution changes; "custom" restores the
-        exact coordinates the user last dragged to (clamped onto a visible
-        screen so an unplugged monitor can't strand the widget off-screen).
+        exact coordinates the user last dragged to (clamped onto the target
+        screen so unplugged monitors fall back safely).
         """
-        screen = QApplication.primaryScreen()
-        if screen is None:
+        screens = QApplication.screens()
+        primary = QApplication.primaryScreen()
+        if not screens or primary is None:
             return
-        geo = screen.availableGeometry()
+
         w, h = self.width(), self.height()
 
         if self._position == OSD_POSITION_CUSTOM and self._custom_xy is not None:
-            x, y = self._custom_xy
-            # Clamp so at least part of the widget stays on-screen.
-            x = max(geo.x(), min(x, geo.x() + geo.width() - w))
-            y = max(geo.y(), min(y, geo.y() + geo.height() - h))
+            cx, cy = self._custom_xy
+            pt = QPoint(cx, cy)
+
+            # Find which screen currently contains the saved coordinate (cx, cy)
+            target_screen = QApplication.screenAt(pt)
+            if target_screen is None:
+                for s in screens:
+                    if s.geometry().contains(pt):
+                        target_screen = s
+                        break
+
+            # Fall back to primary screen if monitor was unplugged or off-screen
+            if target_screen is None:
+                target_screen = primary
+
+            geo = target_screen.availableGeometry()
+            # Clamp position so the widget stays fully on the target screen
+            x = max(geo.x(), min(cx, geo.x() + geo.width() - w))
+            y = max(geo.y(), min(cy, geo.y() + geo.height() - h))
             self.move(x, y)
             return
+
+        geo = primary.availableGeometry()
 
         left = geo.x() + OSD_MARGIN
         right = geo.x() + geo.width() - w - OSD_MARGIN
