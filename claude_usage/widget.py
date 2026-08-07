@@ -25,15 +25,42 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QAction, QColor, QFont, QPainter, QPaintEvent
+from PySide6.QtGui import QAction, QColor, QCursor, QFont, QIcon, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QMenu,
     QScrollArea,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
+
+
+def _create_tray_icon_pixmap() -> QPixmap:
+    """Draw a clean, crisp 64x64 icon for the system tray (Dark box with crimson 'C')."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+
+    # Dark rounded rect container
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor("#1a1a2e"))
+    p.drawRoundedRect(4, 4, 56, 56, 12, 12)
+
+    # Crimson progress accent dot
+    p.setBrush(QColor("#d81f26"))
+    p.drawEllipse(44, 8, 12, 12)
+
+    # White Bold "C"
+    font = QFont("Space Mono", 32, QFont.Bold)
+    font.setStyleHint(QFont.Monospace)
+    p.setFont(font)
+    p.setPen(QColor("#ffffff"))
+    p.drawText(QRectF(4, 4, 56, 56), Qt.AlignCenter, "C")
+    p.end()
+    return pixmap
 
 from claude_usage.collector import UsageStats, collect_all
 from claude_usage.forecast import format_forecast
@@ -1043,9 +1070,18 @@ class ClaudeUsageApp(QObject):
         self.popup = UsagePopup(config)
         self.skin_popup = SkinPopupWidget(config)
 
-        # Context menu shown on right-click of the OSD.
+        # Context menu shown on right-click of the OSD or system tray icon.
         self._context_menu = QMenu()
         self._build_context_menu()
+
+        # System tray icon setup — persistent taskbar/tray icon
+        self._icon = QIcon(_create_tray_icon_pixmap())
+        QApplication.setWindowIcon(self._icon)
+        self.tray_icon = QSystemTrayIcon(self._icon, self.overlay)
+        self.tray_icon.setToolTip("Claude Usage")
+        self.tray_icon.setContextMenu(self._context_menu)
+        self.tray_icon.activated.connect(self._on_tray_icon_activated)
+        self.tray_icon.show()
 
         # Webhook dispatcher + notifier
         from claude_usage.webhooks import WebhookDispatcher
@@ -1710,6 +1746,13 @@ class ClaudeUsageApp(QObject):
 
     def _on_overlay_right_click(self, global_pos: QPoint) -> None:
         self._context_menu.popup(global_pos)
+
+    def _on_tray_icon_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        """Handle mouse interactions on the system tray icon."""
+        if reason in (QSystemTrayIcon.Context, QSystemTrayIcon.Trigger):
+            self._context_menu.popup(QCursor.pos())
+        elif reason == QSystemTrayIcon.DoubleClick:
+            self._show_popup()
 
     def _position_popup(self, target_popup: QWidget) -> None:
         """Position the detail popup window on the SAME screen as the overlay,
