@@ -1711,6 +1711,42 @@ class ClaudeUsageApp(QObject):
     def _on_overlay_right_click(self, global_pos: QPoint) -> None:
         self._context_menu.popup(global_pos)
 
+    def _position_popup(self, target_popup: QWidget) -> None:
+        """Position the detail popup window on the SAME screen as the overlay,
+        smartly aligned near the overlay widget without spilling off-screen."""
+        ov_geo = self.overlay.frameGeometry()
+        win = self.overlay.windowHandle()
+        screen = win.screen() if win is not None else self.overlay.screen()
+        if screen is None:
+            screen = QApplication.screenAt(ov_geo.center())
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+
+        screen_geo = screen.availableGeometry()
+        pop_w, pop_h = target_popup.width(), target_popup.height()
+
+        # Horizontal alignment: place to the left if overlay is on the right half,
+        # otherwise to the right.
+        if ov_geo.center().x() > screen_geo.x() + screen_geo.width() / 2:
+            x = ov_geo.left() - pop_w - 10
+        else:
+            x = ov_geo.right() + 10
+
+        # Vertical alignment: align bottom if overlay is on the bottom half,
+        # otherwise align top.
+        if ov_geo.center().y() > screen_geo.y() + screen_geo.height() / 2:
+            y = ov_geo.bottom() - pop_h
+        else:
+            y = ov_geo.top()
+
+        # Clamp x and y strictly within target screen's bounds
+        x = max(screen_geo.x() + 10, min(x, screen_geo.x() + screen_geo.width() - pop_w - 10))
+        y = max(screen_geo.y() + 10, min(y, screen_geo.y() + screen_geo.height() - pop_h - 10))
+
+        target_popup.move(int(x), int(y))
+
     def _show_popup(self) -> None:
         # Pick the popup implementation that matches the active theme:
         # classic themes use the layout-based popup; the 6 handoff skins
@@ -1722,6 +1758,7 @@ class ClaudeUsageApp(QObject):
         other = self.popup if target is self.skin_popup else self.skin_popup
         if other.isVisible():
             other.hide()
+        self._position_popup(target)
         target.show()
         target.raise_()
         target.activateWindow()
