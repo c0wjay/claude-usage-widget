@@ -51,18 +51,10 @@ THEME = {
 }
 
 METRICS = {
-    "osd_width": 360, "osd_height": 224, "osd_radius": 0, "osd_padding": 12,
+    "osd_width": 360, "osd_height": 188, "osd_radius": 0, "osd_padding": 12,
     "border_width": 2, "ticker_h": 22,
-    # When a model-scoped weekly cap (e.g. "Fable") is present the OSD grows
-    # by one extra SESSION/WEEKLY row's vertical footprint — the same gap the
-    # row() helper leaves between the session and weekly rows (14pt pct number
-    # + 14px bar + 9pt reset line + spacing) — so the third row drops in below
-    # WEEKLY without crowding the ticker strip.
-    "osd_height_scoped": 286,
-    # When the optional Codex second provider is active the OSD grows by TWO
-    # extra SESSION/WEEKLY-style rows (Codex 5h + Codex 7d), i.e. twice the
-    # single-row footprint the scoped row already reserves (286 - 224 = 62).
-    "codex_rows_height": 124,
+    "osd_height_scoped": 236,
+    "codex_rows_height": 96,
 }
 
 FONTS = {"family_mono": "Space Mono", "body_pt": 10, "title_pt": 11}
@@ -124,7 +116,8 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     body_f = mono_font(FONTS["body_pt"] * s, family=FONTS["family_mono"])
     big_f = mono_font(14 * s, bold=True, family=FONTS["family_mono"])
     small_f = mono_font(9 * s, family=FONTS["family_mono"])
-    fm = QFontMetrics(title_f); fm_b = QFontMetrics(big_f); fm_s = QFontMetrics(small_f)
+    time_f = mono_font(11 * s, bold=True, family=FONTS["family_mono"])
+    fm = QFontMetrics(title_f); fm_b = QFontMetrics(big_f); fm_s = QFontMetrics(small_f); fm_time = QFontMetrics(time_f)
 
     # top bar
     draw_text(p, x, y + fm.ascent(),
@@ -151,10 +144,16 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     p.setPen(pen)
     p.drawLine(QPointF(x, y_rule), QPointF(x + w, y_rule))
 
-    def row(yy: float, label: str, pct: float, suffix: str, fill_hex: str):
+    def row(yy: float, label: str, pct: float, time_str: str, is_urgent: bool, fill_hex: str):
         # label left
         draw_text(p, x, yy + fm_s.ascent(),
                   label, hex_to_qcolor(t["ink"]), small_f, letter_spacing_px=2 * s)
+        # reset time next to label, aligned at fixed X offset
+        if time_str:
+            reset_txt = f"{time_str}"
+            t_color = hex_to_qcolor(t["accent"]) if is_urgent else hex_to_qcolor(t["ink"])
+            draw_text(p, x + 65 * s, yy + fm_time.ascent() - 1 * s,
+                      reset_txt, t_color, time_f, letter_spacing_px=1 * s)
         # % right
         pct_txt = f"{int(pct * 100)}%"
         pw = QFontMetrics(big_f).horizontalAdvance(pct_txt)
@@ -167,39 +166,30 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
         p.drawRect(QRectF(x, ybar, w, 14 * s))
         p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(fill_hex))
         p.drawRect(QRectF(x + 1, ybar + 1, (w - 2) * pct, 14 * s - 2))
-        # reset
-        draw_text(p, x, ybar + 14 * s + fm_s.ascent() + 2 * s,
-                  suffix, hex_to_qcolor(t["text_secondary"]), small_f,
-                  letter_spacing_px=1.5 * s)
-        return ybar + 14 * s + fm_s.height() + 6 * s
+        return ybar + 14 * s + 8 * s
 
     yy = y_rule + 10 * s
-    yy = row(yy, "SESSION", data.session_pct,
-             f"RESETS {_format_reset_min(data.session_reset_min)}", t["accent"])
-    yy = row(yy, "WEEKLY", data.weekly_pct,
-             f"RESETS {_format_reset_hrs_min(data.weekly_reset_hrs, data.weekly_reset_min)}",
-             t["ink"])
-    # Optional model-scoped weekly cap (e.g. "Fable") — a native third row in
-    # the same black-bar rhythm as WEEKLY. Present only when the API reports
-    # it; guarding on scoped_pct (belt-and-suspenders with the label) keeps the
-    # no-scoped panel byte-for-byte unchanged. The ticker below is anchored to
-    # rect.bottom(), which the taller osd_height_scoped pushes down for us.
-    if data.scoped_pct is not None and data.scoped_label:
-        yy = row(yy, data.scoped_label.upper(), data.scoped_pct,
-                 f"RESETS {_format_reset_hrs_min(data.scoped_reset_hrs, data.scoped_reset_min)}",
-                 t["ink"])
+    sess_time = _format_reset_min(data.session_reset_min)
+    sess_urgent = (data.session_reset_min < 60)
+    yy = row(yy, "SESSION", data.session_pct, sess_time, sess_urgent, t["accent"])
 
-    # Optional Codex second provider — two more rows in the same black/red
-    # bar rhythm (5h session mirrors SESSION's red bar, 7d mirrors WEEKLY's
-    # black bar). Guarded so the default (codex_available=False) panel is
-    # byte-for-byte identical. The ticker below is anchored to rect.bottom(),
-    # which the taller codex_rows_height-grown panel pushes down for us.
+    wk_time = _format_reset_hrs_min(data.weekly_reset_hrs, data.weekly_reset_min)
+    wk_urgent = (data.weekly_reset_hrs < 24)
+    yy = row(yy, "WEEKLY", data.weekly_pct, wk_time, wk_urgent, t["ink"])
+
+    if data.scoped_pct is not None and data.scoped_label:
+        scoped_time = _format_reset_hrs_min(data.scoped_reset_hrs, data.scoped_reset_min)
+        scoped_urgent = (data.scoped_reset_hrs < 24)
+        yy = row(yy, data.scoped_label.upper(), data.scoped_pct, scoped_time, scoped_urgent, t["ink"])
+
     if getattr(data, "codex_available", False):
-        yy = row(yy, "CODEX 5H", data.codex_session_pct,
-                 f"RESETS {_format_reset_min(data.codex_session_reset_min)}", t["accent"])
-        yy = row(yy, "CODEX 7D", data.codex_weekly_pct,
-                 f"RESETS {_format_reset_hrs_min(data.codex_weekly_reset_hrs, data.codex_weekly_reset_min)}",
-                 t["ink"])
+        c5_time = _format_reset_min(data.codex_session_reset_min)
+        c5_urgent = (data.codex_session_reset_min < 60)
+        yy = row(yy, "CODEX 5H", data.codex_session_pct, c5_time, c5_urgent, t["accent"])
+
+        c7_time = _format_reset_hrs_min(data.codex_weekly_reset_hrs, data.codex_weekly_reset_min)
+        c7_urgent = (data.codex_weekly_reset_hrs < 24)
+        yy = row(yy, "CODEX 7D", data.codex_weekly_pct, c7_time, c7_urgent, t["ink"])
 
     # 2px rule above the ticker strip — matches the Swiss-grid section
     # break at the top of the panel. Collapses the gap between the last content
