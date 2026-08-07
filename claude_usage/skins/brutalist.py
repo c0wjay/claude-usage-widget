@@ -68,6 +68,39 @@ METRICS = {
 FONTS = {"family_mono": "Space Mono", "body_pt": 10, "title_pt": 11}
 
 
+def _format_reset_min(total_mins: int) -> str:
+    if total_mins <= 0:
+        return "0M"
+    if total_mins < 60:
+        return f"{total_mins}M"
+    hrs = total_mins // 60
+    mins = total_mins % 60
+    if hrs >= 24:
+        days = hrs // 24
+        rem_hrs = hrs % 24
+        return f"{days}D {rem_hrs}H {mins}M" if mins > 0 else f"{days}D {rem_hrs}H"
+    return f"{hrs}H {mins}M" if mins > 0 else f"{hrs}H"
+
+
+def _format_reset_hrs_min(total_hrs: int, mins: int) -> str:
+    if total_hrs <= 0 and mins <= 0:
+        return "0M"
+    if total_hrs >= 24:
+        days = total_hrs // 24
+        rem_hrs = total_hrs % 24
+        if rem_hrs > 0 and mins > 0:
+            return f"{days}D {rem_hrs}H {mins}M"
+        elif rem_hrs > 0:
+            return f"{days}D {rem_hrs}H"
+        elif mins > 0:
+            return f"{days}D {mins}M"
+        else:
+            return f"{days}D"
+    if total_hrs > 0:
+        return f"{total_hrs}H {mins}M" if mins > 0 else f"{total_hrs}H"
+    return f"{mins}M"
+
+
 def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     """Brutalist OSD: white panel, heavy 2px black border, Swiss-grid rules
     between sections, crimson accent for the LIVE badge and session bar."""
@@ -142,9 +175,9 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
 
     yy = y_rule + 10 * s
     yy = row(yy, "SESSION", data.session_pct,
-             f"RESETS {data.session_reset_min}M", t["accent"])
+             f"RESETS {_format_reset_min(data.session_reset_min)}", t["accent"])
     yy = row(yy, "WEEKLY", data.weekly_pct,
-             f"RESETS {data.weekly_reset_hrs}H {data.weekly_reset_min}M",
+             f"RESETS {_format_reset_hrs_min(data.weekly_reset_hrs, data.weekly_reset_min)}",
              t["ink"])
     # Optional model-scoped weekly cap (e.g. "Fable") — a native third row in
     # the same black-bar rhythm as WEEKLY. Present only when the API reports
@@ -153,7 +186,7 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     # rect.bottom(), which the taller osd_height_scoped pushes down for us.
     if data.scoped_pct is not None and data.scoped_label:
         yy = row(yy, data.scoped_label.upper(), data.scoped_pct,
-                 f"RESETS {data.scoped_reset_hrs}H {data.scoped_reset_min}M",
+                 f"RESETS {_format_reset_hrs_min(data.scoped_reset_hrs, data.scoped_reset_min)}",
                  t["ink"])
 
     # Optional Codex second provider — two more rows in the same black/red
@@ -163,9 +196,9 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     # which the taller codex_rows_height-grown panel pushes down for us.
     if getattr(data, "codex_available", False):
         yy = row(yy, "CODEX 5H", data.codex_session_pct,
-                 f"RESETS {data.codex_session_reset_min}M", t["accent"])
+                 f"RESETS {_format_reset_min(data.codex_session_reset_min)}", t["accent"])
         yy = row(yy, "CODEX 7D", data.codex_weekly_pct,
-                 f"RESETS {data.codex_weekly_reset_hrs}H {data.codex_weekly_reset_min}M",
+                 f"RESETS {_format_reset_hrs_min(data.codex_weekly_reset_hrs, data.codex_weekly_reset_min)}",
                  t["ink"])
 
     # 2px rule above the ticker strip — matches the Swiss-grid section
