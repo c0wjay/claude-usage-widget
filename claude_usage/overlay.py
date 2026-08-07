@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -96,7 +96,7 @@ SCALE_STEP = 0.1
 DRAG_THRESHOLD = 5
 
 
-def _mono_font(size_pt: int, bold: bool = False) -> QFont:
+def _mono_font(size_pt: float, bold: bool = False) -> QFont:
     """Return a platform-appropriate fixed-pitch font.
 
     Naming the family ``"monospace"`` alone is a Unix/X convention — on
@@ -108,7 +108,7 @@ def _mono_font(size_pt: int, bold: bool = False) -> QFont:
     f = QFont()
     f.setStyleHint(QFont.Monospace)
     f.setFamily("monospace")
-    f.setPointSize(int(size_pt))
+    f.setPixelSize(max(1, int(round(size_pt))))
     if bold:
         f.setBold(True)
     return f
@@ -479,7 +479,7 @@ class UsageOverlay(QWidget):
             base += m.get("codex_rows_height", 2 * SCOPED_ROW_HEIGHT)
         return base
 
-    def _apply_size(self) -> None:
+    def _apply_size(self, preserve_top_right: bool = False) -> None:
         """Resize the window to match ``_scale``, view mode, and chrome state."""
         if self._skin is not None and not self._minimized:
             # Skins declare their own OSD footprint — honour it instead of
@@ -489,7 +489,8 @@ class UsageOverlay(QWidget):
             m = self._skin.METRICS
             width = int(m["osd_width"] * self._scale)
             height = int(self._skin_base_height() * self._scale)
-            if self.isVisible():
+            self.setMinimumSize(width, height)
+            if preserve_top_right and self.isVisible():
                 tr = self.frameGeometry().topRight()
                 self.resize(width, height)
                 self.move(tr.x() - width, tr.y())
@@ -512,9 +513,9 @@ class UsageOverlay(QWidget):
             if self._codex_available:
                 base += 2 * SCOPED_ROW_HEIGHT  # Codex 5h + 7d rows
         height = MINIMIZED_HEIGHT if self._minimized else int(base * self._scale)
-        # Preserve the top-right corner when resizing so the overlay doesn't
-        # visually drift as the user scrolls to scale.
-        if self.isVisible():
+        self.setMinimumSize(width, height)
+        # Preserve the top-right corner when rescaling via mouse wheel.
+        if preserve_top_right and self.isVisible():
             tr = self.frameGeometry().topRight()
             self.resize(width, height)
             self.move(tr.x() - width, tr.y())
@@ -687,6 +688,8 @@ class UsageOverlay(QWidget):
             self._position = OSD_POSITION_CUSTOM
             self._custom_xy = (tl.x(), tl.y())
             self.movedTo.emit(tl.x(), tl.y())
+            self._apply_size(preserve_top_right=False)
+            self.update()
         self._press_pos = None
         self._press_win_pos = None
         self._dragging = False
@@ -705,7 +708,7 @@ class UsageOverlay(QWidget):
         new_scale = max(SCALE_MIN, min(SCALE_MAX, self._scale + step))
         if new_scale != self._scale:
             self._scale = new_scale
-            self._apply_size()
+            self._apply_size(preserve_top_right=True)
             self.update()
             self.scaledTo.emit(self._scale)
             # _apply_size preserves the top-RIGHT corner, so a resize shifts
@@ -716,6 +719,21 @@ class UsageOverlay(QWidget):
                 tl = self.frameGeometry().topLeft()
                 self._custom_xy = (tl.x(), tl.y())
                 self.movedTo.emit(tl.x(), tl.y())
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        win = self.windowHandle()
+        if win is not None and not getattr(self, "_screen_signal_connected", False):
+            try:
+                win.screenChanged.connect(self._on_screen_changed, Qt.UniqueConnection)
+                self._screen_signal_connected = True
+            except Exception:
+                pass
+
+    def _on_screen_changed(self, screen) -> None:
+        if not self._dragging:
+            self._apply_size(preserve_top_right=False)
+            self.update()
 
     # ----------------------------------------------------------- painting
 

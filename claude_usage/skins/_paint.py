@@ -23,7 +23,7 @@ def mono_font(size_pt: float, bold: bool = False, family: str = "JetBrains Mono"
     f = QFont(family)
     # Fall back to platform mono if family missing.
     f.setStyleHint(QFont.Monospace)
-    f.setPointSizeF(size_pt)
+    f.setPixelSize(max(1, int(round(size_pt))))
     if bold:
         f.setWeight(QFont.Bold)
     return f
@@ -33,7 +33,7 @@ def ui_font(size_pt: float, weight: int = QFont.Normal, family: str = "Inter") -
     """Build a sans-serif UI QFont with a sensible system fallback."""
     f = QFont(family)
     f.setStyleHint(QFont.SansSerif)
-    f.setPointSizeF(size_pt)
+    f.setPixelSize(max(1, int(round(size_pt))))
     f.setWeight(weight)
     return f
 

@@ -135,5 +135,16 @@ class TestAlwaysOnTop(unittest.TestCase):
         self.assertTrue(ov.testAttribute(Qt.WA_MacAlwaysShowToolWindow))
 
 
+class TestOverlayDimensions(unittest.TestCase):
+    def setUp(self) -> None:
+        _get_app()
+
+    def test_overlay_enforces_minimum_size(self) -> None:
+        ov = UsageOverlay({})
+        w, h = ov.width(), ov.height()
+        self.assertEqual(ov.minimumWidth(), w)
+        self.assertEqual(ov.minimumHeight(), h)
+
+
 if __name__ == "__main__":
     unittest.main()
