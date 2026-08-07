@@ -181,7 +181,8 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     # Ticker strip along the bottom — separator line above, 5-bucket
     # quartile colouring, scrolling right-to-left.
     ticker_h = m["ticker_h"] * s
-    y_sep = rect.bottom() - ticker_h - 2 * s
+    y_sep_target = rect.bottom() - ticker_h - 2 * s
+    y_sep = max(y_cursor, y_sep_target)
     p.setPen(hex_to_qcolor(t["border"]))
     p.drawLine(QPointF(x, y_sep), QPointF(x + w, y_sep))
     ticker_f = mono_font(FONTS["label_pt"] * s, family=FONTS["family_mono"])

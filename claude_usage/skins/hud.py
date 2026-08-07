@@ -211,7 +211,9 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     # Ticker strip along the bottom — bordered separator + amber-tiered
     # quartile colours matching the cockpit palette.
     ticker_h = m["ticker_h"] * s
-    y_tick_top = rect.bottom() - ticker_h
+    content_y = y_codex_7d if getattr(data, "codex_available", False) else (y_mid + (base + 2) * single_row if data.scoped_pct and data.scoped_label else y_mid + 2 * single_row)
+    y_tick_top_target = rect.bottom() - ticker_h
+    y_tick_top = max(content_y + 10 * s, y_tick_top_target)
     pen = QPen(hex_to_qcolor(t["border_bright"])); pen.setWidthF(1 * s)
     p.setPen(pen)
     p.drawLine(

@@ -169,8 +169,10 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
                  t["ink"])
 
     # 2px rule above the ticker strip — matches the Swiss-grid section
-    # break at the top of the panel.
-    y_tick_rule = rect.bottom() - METRICS["ticker_h"] * s
+    # break at the top of the panel. Collapses the gap between the last content
+    # row and ticker before hiding the ticker when the window height is reduced.
+    y_tick_target = rect.bottom() - METRICS["ticker_h"] * s
+    y_tick_rule = max(yy + 2 * s, y_tick_target)
     pen = QPen(hex_to_qcolor(t["ink"])); pen.setWidthF(2 * s)
     p.setPen(pen)
     p.drawLine(QPointF(x, y_tick_rule), QPointF(x + w, y_tick_rule))

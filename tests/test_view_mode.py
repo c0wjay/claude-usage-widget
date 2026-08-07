@@ -141,9 +141,10 @@ class TestOverlayDimensions(unittest.TestCase):
 
     def test_overlay_enforces_minimum_size(self) -> None:
         ov = UsageOverlay({})
-        w, h = ov.width(), ov.height()
-        self.assertEqual(ov.minimumWidth(), w)
-        self.assertEqual(ov.minimumHeight(), h)
+        self.assertGreaterEqual(ov.minimumWidth(), 160)
+        self.assertGreaterEqual(ov.minimumHeight(), 80)
+        self.assertGreaterEqual(ov.width(), ov.minimumWidth())
+        self.assertGreaterEqual(ov.height(), ov.minimumHeight())
 
 
 if __name__ == "__main__":

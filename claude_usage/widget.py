@@ -1090,6 +1090,7 @@ class ClaudeUsageApp(QObject):
         self.overlay.clicked.connect(self._on_overlay_click)
         self.overlay.rightClicked.connect(self._on_overlay_right_click)
         self.overlay.movedTo.connect(self._on_overlay_moved)
+        self.overlay.resizedTo.connect(self._on_overlay_resized)
         self.overlay.scaledTo.connect(self._on_overlay_scaled)
         self.overlay.minimizedChanged.connect(self._on_overlay_minimized_changed)
         self.stats_ready.connect(self._apply_stats)
@@ -1349,6 +1350,12 @@ class ClaudeUsageApp(QObject):
     def _on_overlay_scaled(self, scale: float) -> None:
         """Persist the wheel-set zoom so the OSD reopens at the same size."""
         self.config["osd_scale"] = round(float(scale), 3)
+        self._persist_config()
+
+    def _on_overlay_resized(self, width: int, height: int) -> None:
+        """Persist the user-dragged OSD window dimensions across restarts."""
+        self.config["osd_custom_width"] = int(width)
+        self.config["osd_custom_height"] = int(height)
         self._persist_config()
 
     def _on_overlay_minimized_changed(self, minimized: bool) -> None:

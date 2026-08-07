@@ -90,6 +90,34 @@ TICKER_FRAME_INTERVAL_MS = 40  # ~25 fps — smooth without waking the CPU
 SCALE_MIN = 0.6
 SCALE_MAX = 4.0
 SCALE_STEP = 0.1
+BORDER_MARGIN = 8
+EDGE_NONE = 0
+EDGE_LEFT = 1
+EDGE_RIGHT = 2
+EDGE_TOP = 4
+EDGE_BOTTOM = 8
+
+MIN_OSD_WIDTH = 160
+MIN_OSD_HEIGHT = 80
+
+
+def _get_resize_edge(pos: QPoint, rect: QRectF) -> int:
+    edge = EDGE_NONE
+    x, y = pos.x(), pos.y()
+    w, h = rect.width(), rect.height()
+
+    if x <= BORDER_MARGIN:
+        edge |= EDGE_LEFT
+    elif x >= w - BORDER_MARGIN:
+        edge |= EDGE_RIGHT
+
+    if y <= BORDER_MARGIN:
+        edge |= EDGE_TOP
+    elif y >= h - BORDER_MARGIN:
+        edge |= EDGE_BOTTOM
+
+    return edge
+
 
 # Distance the mouse must move between press and release before a left-click
 # is treated as a drag rather than a click.
@@ -187,6 +215,8 @@ class UsageOverlay(QWidget):
     # Emitted after a drag-to-move finishes, with the new top-left (x, y).
     # The controller persists these as the "custom" position in config.
     movedTo = Signal(int, int)
+    # Emitted when the user resizes the window by dragging border edges.
+    resizedTo = Signal(int, int)
     # Emitted when the scroll-wheel changes the scale factor — controller
     # persists it so the OSD reopens at the same zoom.
     scaledTo = Signal(float)
@@ -195,6 +225,7 @@ class UsageOverlay(QWidget):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__()
+        self.setMouseTracking(True)
         cfg = config or {}
         theme_name = str(cfg.get("theme", "default"))
         self._theme = get_theme(theme_name)
@@ -207,6 +238,12 @@ class UsageOverlay(QWidget):
         # scalars set in update_stats.
         self._last_stats: UsageStats | None = None
         self._scale: float = float(cfg.get("osd_scale", 1.0))
+        self._custom_width: int | None = cfg.get("osd_custom_width")
+        self._custom_height: int | None = cfg.get("osd_custom_height")
+        self._resizing: bool = False
+        self._current_resize_edge: int = EDGE_NONE
+        self._press_global_pos: QPoint | None = None
+        self._press_geo: QRectF | None = None
         self._opacity: float = float(cfg.get("osd_opacity", 0.75))
         self._minimized: bool = False
 
@@ -480,16 +517,18 @@ class UsageOverlay(QWidget):
         return base
 
     def _apply_size(self, preserve_top_right: bool = False) -> None:
-        """Resize the window to match ``_scale``, view mode, and chrome state."""
+        """Resize the window to match ``_scale``, view mode, custom dimensions, and chrome state."""
         if self._skin is not None and not self._minimized:
             # Skins declare their own OSD footprint — honour it instead of
             # squeezing the handoff layout into the default's 260×122 box.
             # Scoped-cap and Codex rows grow it; _skin_base_height() resolves
             # all four combinations from a single place.
             m = self._skin.METRICS
-            width = int(m["osd_width"] * self._scale)
-            height = int(self._skin_base_height() * self._scale)
-            self.setMinimumSize(width, height)
+            base_w = int(m["osd_width"] * self._scale)
+            base_h = int(self._skin_base_height() * self._scale)
+            width = self._custom_width if self._custom_width is not None else base_w
+            height = self._custom_height if self._custom_height is not None else base_h
+            self.setMinimumSize(MIN_OSD_WIDTH, MIN_OSD_HEIGHT)
             if preserve_top_right and self.isVisible():
                 tr = self.frameGeometry().topRight()
                 self.resize(width, height)
@@ -498,7 +537,7 @@ class UsageOverlay(QWidget):
                 self.resize(width, height)
             return
 
-        width = int(BASE_WIDTH * self._scale)
+        base_w = int(BASE_WIDTH * self._scale)
         if self._view_mode == VIEW_MODE_GAUGE:
             base = GAUGE_HEIGHT + (SCOPED_ROW_HEIGHT if self._scoped_label else 0)
             if self._codex_available:
@@ -512,8 +551,10 @@ class UsageOverlay(QWidget):
                 base += SCOPED_ROW_HEIGHT
             if self._codex_available:
                 base += 2 * SCOPED_ROW_HEIGHT  # Codex 5h + 7d rows
-        height = MINIMIZED_HEIGHT if self._minimized else int(base * self._scale)
-        self.setMinimumSize(width, height)
+        base_h = MINIMIZED_HEIGHT if self._minimized else int(base * self._scale)
+        width = self._custom_width if self._custom_width is not None else base_w
+        height = self._custom_height if (self._custom_height is not None and not self._minimized) else base_h
+        self.setMinimumSize(MIN_OSD_WIDTH, MINIMIZED_HEIGHT if self._minimized else MIN_OSD_HEIGHT)
         # Preserve the top-right corner when rescaling via mouse wheel.
         if preserve_top_right and self.isVisible():
             tr = self.frameGeometry().topRight()
@@ -636,8 +677,28 @@ class UsageOverlay(QWidget):
 
     # --------------------------------------------------------------- events
 
+    def _update_cursor_for_edge(self, edge: int) -> None:
+        if edge in (EDGE_LEFT | EDGE_TOP, EDGE_RIGHT | EDGE_BOTTOM):
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif edge in (EDGE_RIGHT | EDGE_TOP, EDGE_LEFT | EDGE_BOTTOM):
+            self.setCursor(Qt.SizeBDiagCursor)
+        elif edge & (EDGE_LEFT | EDGE_RIGHT):
+            self.setCursor(Qt.SizeHorCursor)
+        elif edge & (EDGE_TOP | EDGE_BOTTOM):
+            self.setCursor(Qt.SizeVerCursor)
+        else:
+            self.unsetCursor()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:
+            pos = event.position().toPoint()
+            edge = _get_resize_edge(pos, QRectF(0, 0, self.width(), self.height()))
+            if edge != EDGE_NONE and not self._minimized:
+                self._resizing = True
+                self._current_resize_edge = edge
+                self._press_global_pos = event.globalPosition().toPoint()
+                self._press_geo = QRectF(self.geometry())
+                return
             self._press_pos = event.globalPosition().toPoint()
             self._press_win_pos = self.frameGeometry().topLeft()
             self._dragging = False
@@ -646,6 +707,42 @@ class UsageOverlay(QWidget):
             self.rightClicked.emit(event.globalPosition().toPoint())
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        pos = event.position().toPoint()
+
+        if not self._resizing and not self._dragging:
+            edge = _get_resize_edge(pos, QRectF(0, 0, self.width(), self.height())) if not self._minimized else EDGE_NONE
+            self._update_cursor_for_edge(edge)
+
+        if self._resizing and self._press_global_pos is not None and self._press_geo is not None:
+            global_pos = event.globalPosition().toPoint()
+            delta = global_pos - self._press_global_pos
+
+            new_x = self._press_geo.x()
+            new_y = self._press_geo.y()
+            new_w = self._press_geo.width()
+            new_h = self._press_geo.height()
+            edge = self._current_resize_edge
+
+            if edge & EDGE_LEFT:
+                w_cand = max(MIN_OSD_WIDTH, self._press_geo.width() - delta.x())
+                new_x = self._press_geo.right() - w_cand
+                new_w = w_cand
+            elif edge & EDGE_RIGHT:
+                new_w = max(MIN_OSD_WIDTH, self._press_geo.width() + delta.x())
+
+            if edge & EDGE_TOP:
+                h_cand = max(MIN_OSD_HEIGHT, self._press_geo.height() - delta.y())
+                new_y = self._press_geo.bottom() - h_cand
+                new_h = h_cand
+            elif edge & EDGE_BOTTOM:
+                new_h = max(MIN_OSD_HEIGHT, self._press_geo.height() + delta.y())
+
+            self._custom_width = int(new_w)
+            self._custom_height = int(new_h)
+            self.setGeometry(int(new_x), int(new_y), int(new_w), int(new_h))
+            self.update()
+            return
+
         if self._press_pos is None:
             return
         delta = event.globalPosition().toPoint() - self._press_pos
@@ -661,12 +758,14 @@ class UsageOverlay(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.LeftButton:
             return
+        if self._resizing:
+            self._resizing = False
+            self._current_resize_edge = EDGE_NONE
+            self.resizedTo.emit(self.width(), self.height())
+            self.unsetCursor()
+            return
+
         if self._press_pos is not None and not self._dragging:
-            # Check if click landed on the news strip (bottom NEWS_STRIP_HEIGHT px).
-            # Guards: never while minimized (h=6 makes the threshold negative,
-            # which would hijack EVERY click into the browser), and only while
-            # the news feature is actually enabled — a cached headline from a
-            # since-disabled session must not keep stealing clicks.
             click_y = event.position().y()
             h = self.height()
             if (not self._minimized
@@ -678,12 +777,6 @@ class UsageOverlay(QWidget):
             else:
                 self.clicked.emit()
         elif self._dragging and not self._system_move_started:
-            # Drag finished — remember exactly where the user dropped it as
-            # the new "custom" position so it survives a restart. Skipped after
-            # a Wayland compositor move (startSystemMove): a Wayland client
-            # can't read its own global position, so frameGeometry would persist
-            # a bogus coordinate — and Wayland ignores absolute positioning
-            # anyway, so there's nothing useful to remember.
             tl = self.frameGeometry().topLeft()
             self._position = OSD_POSITION_CUSTOM
             self._custom_xy = (tl.x(), tl.y())
@@ -696,11 +789,10 @@ class UsageOverlay(QWidget):
         self._system_move_started = False
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Mouse wheel rescales the OSD; disabled while minimized so the
+        """Mouse wheel rescales the OSD contents; disabled while minimized so the
         thin capsule doesn't grow unexpectedly under the cursor."""
         if self._minimized:
             return
-        # angleDelta().y() is +120 per "tick" upward, -120 downward.
         delta = event.angleDelta().y()
         if delta == 0:
             return
@@ -708,13 +800,12 @@ class UsageOverlay(QWidget):
         new_scale = max(SCALE_MIN, min(SCALE_MAX, self._scale + step))
         if new_scale != self._scale:
             self._scale = new_scale
+            # Reset custom pixel dimensions when zooming so content scale drives window dimensions smoothly
+            self._custom_width = None
+            self._custom_height = None
             self._apply_size(preserve_top_right=True)
             self.update()
             self.scaledTo.emit(self._scale)
-            # _apply_size preserves the top-RIGHT corner, so a resize shifts
-            # the top-left. For a custom-positioned OSD the saved coordinates
-            # would silently go stale and the widget would reappear at the
-            # pre-resize spot after a restart — keep them in sync.
             if self._position == OSD_POSITION_CUSTOM:
                 tl = self.frameGeometry().topLeft()
                 self._custom_xy = (tl.x(), tl.y())
@@ -770,16 +861,15 @@ class UsageOverlay(QWidget):
                 # _apply_size — via the shared _skin_base_height() so the two
                 # can never disagree and let a scoped/Codex row spill outside
                 # the skin's panel.
-                skin_h = int(self._skin_base_height() * s)
-                self._skin.paint_osd(p, QRectF(0, 0, w, skin_h), data, self._scale)
+                self._skin.paint_osd(p, QRectF(0, 0, w, h), data, self._scale)
                 # Draw news inside the skin's frame: above the skin's own ticker.
                 if getattr(self._skin, "WANTS_TICKER", False):
                     pad_x = 14 * s
                     if "news_bottom_pad" in self._skin.METRICS:
-                        news_y = skin_h - self._skin.METRICS["news_bottom_pad"] * s
+                        news_y = h - self._skin.METRICS["news_bottom_pad"] * s
                     else:
                         ticker_h = self._skin.METRICS.get("ticker_h", NEWS_STRIP_HEIGHT) * s
-                        news_y = skin_h - ticker_h - NEWS_STRIP_HEIGHT * s + 3 * s
+                        news_y = h - ticker_h - NEWS_STRIP_HEIGHT * s + 3 * s
                     # Use same font as the skin's own ticker
                     skin_fonts = getattr(self._skin, "FONTS", {})
                     from claude_usage.skins._paint import mono_font as _skin_mono
