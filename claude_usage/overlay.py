@@ -208,8 +208,9 @@ def _bar_color(pct: float, theme: dict[str, str]) -> QColor:
 class UsageOverlay(QWidget):
     """Transparent, frameless OSD showing session + weekly utilisation."""
 
-    # Emitted when the user left-clicks (without dragging).
+    # Emitted when the user double-clicks the OSD (opens the detail popup).
     clicked = Signal()
+    doubleClicked = Signal()
     # Emitted when the user right-clicks. Handler should show a context menu.
     rightClicked = Signal(QPoint)
     # Emitted after a drag-to-move finishes, with the new top-left (x, y).
@@ -775,7 +776,7 @@ class UsageOverlay(QWidget):
                 import webbrowser
                 webbrowser.open(self._latest_news_url)
             else:
-                self.clicked.emit()
+                pass
         elif self._dragging and not self._system_move_started:
             tl = self.frameGeometry().topLeft()
             self._position = OSD_POSITION_CUSTOM
@@ -787,6 +788,12 @@ class UsageOverlay(QWidget):
         self._press_win_pos = None
         self._dragging = False
         self._system_move_started = False
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        """Double-clicking the OSD toggles the detail popup window."""
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            self.doubleClicked.emit()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Mouse wheel rescales the OSD contents; disabled while minimized so the
