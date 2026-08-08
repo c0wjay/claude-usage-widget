@@ -13,6 +13,7 @@ Interactions:
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from typing import Any
 
@@ -691,14 +692,11 @@ class UsageOverlay(QWidget):
     def _window_flags(self) -> Qt.WindowFlags:
         """Build the window flags for the current always-on-top setting.
 
-        When pinned (default) we also set ``BypassWindowManagerHint`` so the
-        OSD floats above everything on KDE/GNOME without the WM re-stacking or
-        decorating it. When the user turns always-on-top OFF, we drop BOTH
-        that and ``WindowStaysOnTopHint`` so the window manager treats it like
-        a normal frameless tool window — i.e. it sinks behind whatever you're
-        working in, the whole point of a background desktop widget. (Without
-        dropping Bypass too, an unmanaged X11 window would stay stuck on top
-        regardless, which is the exact complaint in issue #13.)
+        When pinned (default) on Linux/X11 we set ``BypassWindowManagerHint`` so
+        the OSD floats above KDE/GNOME window managers without re-stacking.
+        On Windows / macOS, ``BypassWindowManagerHint`` MUST NOT be set because it
+        causes DWM to strip the window from Topmost Z-order management, causing it
+        to unexpectedly sink BEHIND all other focused windows!
         """
         flags = (
             Qt.FramelessWindowHint
@@ -706,7 +704,9 @@ class UsageOverlay(QWidget):
             | Qt.WindowDoesNotAcceptFocus  # typing never steals focus
         )
         if self._always_on_top:
-            flags |= Qt.WindowStaysOnTopHint | Qt.BypassWindowManagerHint
+            flags |= Qt.WindowStaysOnTopHint
+            if sys.platform.startswith("linux"):
+                flags |= Qt.BypassWindowManagerHint
         return flags
 
     def _apply_window_type_attr(self) -> None:

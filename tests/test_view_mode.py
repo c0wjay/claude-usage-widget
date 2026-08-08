@@ -6,6 +6,7 @@ Uses Qt's offscreen platform so the tests run headless on CI.
 from __future__ import annotations
 
 import os
+import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import unittest
@@ -80,7 +81,8 @@ class TestAlwaysOnTop(unittest.TestCase):
         ov = UsageOverlay({})
         self.assertTrue(ov.is_always_on_top())
         self.assertTrue(ov.windowFlags() & Qt.WindowStaysOnTopHint)
-        self.assertTrue(ov.windowFlags() & Qt.BypassWindowManagerHint)
+        if sys.platform.startswith("linux"):
+            self.assertTrue(ov.windowFlags() & Qt.BypassWindowManagerHint)
 
     def test_config_can_disable(self) -> None:
         ov = UsageOverlay({"osd_always_on_top": False})
