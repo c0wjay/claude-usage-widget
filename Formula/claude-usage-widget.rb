@@ -1,6 +1,6 @@
 class ClaudeUsageWidget < Formula
   desc "Desktop widget that shows real-time Claude Code usage limits and cost"
-  homepage "https://github.com/bozdemir/claude-usage-widget"
+  homepage "https://github.com/c0wjay/claude-usage-widget"
   url "https://files.pythonhosted.org/packages/af/7d/91aca31990c89f6adab37075c23fbe436362ac202d48ab04a28d75f8063d/claude_usage_widget-0.12.3.tar.gz"
   sha256 "5400d74669a0b4da702d497b142c6dc3e0c252e52cc34c9a774141047e4f7d3e"
   license "MIT"
