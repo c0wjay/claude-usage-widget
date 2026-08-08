@@ -1754,8 +1754,34 @@ class ClaudeUsageApp(QObject):
         self._context_menu.popup(global_pos)
 
     def _on_tray_icon_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        """Handle mouse interactions on the system tray icon."""
-        if reason in (QSystemTrayIcon.Context, QSystemTrayIcon.Trigger):
+        """Handle mouse interactions on the system tray icon.
+
+        - Trigger (Left-click): Teleports the OSD widget to current cursor position.
+        - Context (Right-click): Opens the context menu.
+        - DoubleClick: Toggles the detail popup window.
+        """
+        if reason == QSystemTrayIcon.Trigger:
+            cursor_pos = QCursor.pos()
+            target_x = cursor_pos.x() - self.overlay.width() // 2
+            target_y = cursor_pos.y() - self.overlay.height() // 2
+            clamped_x, clamped_y = self.overlay._clamp_to_screen_bounds(target_x, target_y)
+
+            self.overlay._position = "custom"
+            self.overlay._custom_xy = (clamped_x, clamped_y)
+
+            target_screen = QApplication.screenAt(QPoint(clamped_x, clamped_y))
+            if target_screen is None:
+                target_screen = QApplication.primaryScreen()
+            if target_screen is not None:
+                geo = target_screen.availableGeometry()
+                self.overlay._custom_screen_name = target_screen.name()
+                self.overlay._custom_rel_offset = (clamped_x - geo.x(), clamped_y - geo.y())
+
+            self.overlay.move(clamped_x, clamped_y)
+            self.overlay.show()
+            self.overlay.raise_()
+            self._on_overlay_moved(clamped_x, clamped_y)
+        elif reason == QSystemTrayIcon.Context:
             self._context_menu.popup(QCursor.pos())
         elif reason == QSystemTrayIcon.DoubleClick:
             self._show_popup()
