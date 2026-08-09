@@ -977,8 +977,9 @@ class UsageOverlay(QWidget):
             from PySide6.QtCore import QRectF
             p.setRenderHint(QPainter.Antialiasing, True)
             p.setRenderHint(QPainter.TextAntialiasing, True)
+            p.setOpacity(1.0)
             data = _skin_data_from_stats(
-                self._last_stats, ticker_offset=self._ticker_offset,
+                self._last_stats, ticker_offset=self._ticker_offset, opacity=self._opacity,
             )
             try:
                 s = self._scale

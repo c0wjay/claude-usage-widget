@@ -99,10 +99,22 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     s = scale; t = THEME
     pad = METRICS["osd_padding"] * s
 
-    # panel: white fill + heavy black 2px border
-    p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(t["panel"]))
+def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
+    """Brutalist OSD: white panel, heavy 2px black border, Swiss-grid rules
+    between sections, crimson accent for the LIVE badge and session bar."""
+    s = scale; t = THEME
+    pad = METRICS["osd_padding"] * s
+
+    # Background opacity (raw opacity) vs Foreground opacity (mapped: 100%->1.0, 75%->0.9, 50%->0.8, 25%->0.7)
+    bg_op = max(0.15, min(1.0, float(getattr(data, "opacity", 1.0))))
+    fg_op = max(0.15, min(1.0, 0.60 + 0.40 * bg_op))
+
+    # panel: white fill (background)
+    p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(t["panel"], bg_op))
     p.drawRect(rect)
-    pen = QPen(hex_to_qcolor(t["ink"])); pen.setWidthF(METRICS["border_width"] * s)
+
+    # outer 2px border (background)
+    pen = QPen(hex_to_qcolor(t["ink"], bg_op)); pen.setWidthF(METRICS["border_width"] * s)
     p.setPen(pen); p.setBrush(Qt.NoBrush)
     # Inset by half the pen width so the stroke falls entirely inside the
     # rect at any scale (Qt strokes are centred on the path).
@@ -119,52 +131,55 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
     time_f = mono_font(11 * s, bold=True, family=FONTS["family_mono"])
     fm = QFontMetrics(title_f); fm_b = QFontMetrics(big_f); fm_s = QFontMetrics(small_f); fm_time = QFontMetrics(time_f)
 
-    # top bar
+    # top bar (foreground)
     draw_text(p, x, y + fm.ascent(),
               "CLAUDE / USAGE",
-              hex_to_qcolor(t["ink"]), title_f, letter_spacing_px=3 * s)
+              hex_to_qcolor(t["ink"], fg_op), title_f, letter_spacing_px=3 * s)
 
     if getattr(data, "is_live", False):
         label = "LIVE"
         lw = fm_s.horizontalAdvance(label)
-        # red badge
-        p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(t["accent"]))
+        # red badge (foreground)
+        p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(t["accent"], fg_op))
         badge = QRectF(rect.right() - pad - lw - 10 * s - 60 * s,
                        y + 2 * s, lw + 8 * s, fm.height() - 2 * s)
         p.drawRect(badge)
         draw_text(p, badge.x() + 4 * s, badge.y() + fm_s.ascent() + 2 * s,
-                  label, QColor("#ffffff"), small_f, letter_spacing_px=2 * s)
+                  label, hex_to_qcolor("#ffffff", fg_op), small_f, letter_spacing_px=2 * s)
         tm = f"{data.live_tok_per_min:.1f}K/MIN"
         draw_text(p, badge.right() + 6 * s, badge.y() + fm_s.ascent() + 2 * s,
-                  tm, hex_to_qcolor(t["ink"]), small_f, letter_spacing_px=1.5 * s)
+                  tm, hex_to_qcolor(t["ink"], fg_op), small_f, letter_spacing_px=1.5 * s)
 
-    # 2px rule under header
+    # 2px rule under header (foreground)
     y_rule = y + fm.height() + 4 * s
-    pen = QPen(hex_to_qcolor(t["ink"])); pen.setWidthF(2 * s)
+    pen = QPen(hex_to_qcolor(t["ink"], fg_op)); pen.setWidthF(2 * s)
     p.setPen(pen)
     p.drawLine(QPointF(x, y_rule), QPointF(x + w, y_rule))
 
     def row(yy: float, label: str, pct: float, time_str: str, is_urgent: bool, fill_hex: str):
-        # label left
+        # label left (foreground)
         draw_text(p, x, yy + fm_s.ascent(),
-                  label, hex_to_qcolor(t["ink"]), small_f, letter_spacing_px=2 * s)
-        # reset time next to label, aligned at fixed X offset
+                  label, hex_to_qcolor(t["ink"], fg_op), small_f, letter_spacing_px=2 * s)
+        # reset time next to label, aligned at fixed X offset (foreground)
         if time_str:
             reset_txt = f"{time_str}"
-            t_color = hex_to_qcolor(t["accent"]) if is_urgent else hex_to_qcolor(t["ink"])
+            t_color = hex_to_qcolor(t["accent"], fg_op) if is_urgent else hex_to_qcolor(t["ink"], fg_op)
             draw_text(p, x + 65 * s, yy + fm_time.ascent() - 1 * s,
                       reset_txt, t_color, time_f, letter_spacing_px=1 * s)
-        # % right
+        # % right (foreground)
         pct_txt = f"{int(pct * 100)}%"
         pw = QFontMetrics(big_f).horizontalAdvance(pct_txt)
         draw_text(p, x + w - pw, yy + fm_b.ascent(),
-                  pct_txt, hex_to_qcolor(t["ink"]), big_f)
-        # rect bar below
+                  pct_txt, hex_to_qcolor(t["ink"], fg_op), big_f)
+
+        # rect bar empty track & border -> background element (bg_op)
         ybar = yy + fm_b.height() + 2 * s
-        p.setPen(QPen(hex_to_qcolor(t["ink"]), 1 * s))
-        p.setBrush(hex_to_qcolor(t["very_dim"]))
+        p.setPen(QPen(hex_to_qcolor(t["ink"], bg_op), 1 * s))
+        p.setBrush(hex_to_qcolor(t["very_dim"], bg_op))
         p.drawRect(QRectF(x, ybar, w, 14 * s))
-        p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(fill_hex))
+
+        # rect bar filled portion -> foreground element (fg_op)
+        p.setPen(Qt.NoPen); p.setBrush(hex_to_qcolor(fill_hex, fg_op))
         p.drawRect(QRectF(x + 1, ybar + 1, (w - 2) * pct, 14 * s - 2))
         return ybar + 14 * s + 8 * s
 
@@ -191,19 +206,22 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
         c7_urgent = (data.codex_weekly_reset_hrs < 24)
         yy = row(yy, "CODEX 7D", data.codex_weekly_pct, c7_time, c7_urgent, t["ink"])
 
-    # 2px rule above the ticker strip — matches the Swiss-grid section
-    # break at the top of the panel. Collapses the gap between the last content
-    # row and ticker before hiding the ticker when the window height is reduced.
+    # 2px rule above the ticker strip (foreground)
     y_tick_target = rect.bottom() - METRICS["ticker_h"] * s
     y_tick_rule = max(yy + 2 * s, y_tick_target)
-    pen = QPen(hex_to_qcolor(t["ink"])); pen.setWidthF(2 * s)
+    pen = QPen(hex_to_qcolor(t["ink"], fg_op)); pen.setWidthF(2 * s)
     p.setPen(pen)
     p.drawLine(QPointF(x, y_tick_rule), QPointF(x + w, y_tick_rule))
     ticker_f = mono_font(9 * s, bold=True, family=FONTS["family_mono"])
     fm_tick = QFontMetrics(ticker_f)
     y_tick_base = y_tick_rule + 6 * s + fm_tick.ascent()
-    # Brutalist palette — red hot, black warn, muted cool/dim.
-    ticker_colors = (t["text_dim"], t["ink"], t["ink"], t["accent"])
+    # Brutalist palette — red hot, black warn, muted cool/dim (foreground)
+    ticker_colors = (
+        hex_to_qcolor(t["text_dim"], fg_op),
+        hex_to_qcolor(t["ink"], fg_op),
+        hex_to_qcolor(t["ink"], fg_op),
+        hex_to_qcolor(t["accent"], fg_op),
+    )
     draw_ticker_marquee(
         p, x, y_tick_base, w,
         data.ticker_items, data.ticker_offset,

@@ -58,6 +58,7 @@ class SkinData:
     # their ticker (terminal, strip, ...) modulo this against the total
     # strip width; static skins ignore it.
     ticker_offset: float = 0.0
+    opacity: float = 1.0
 
 
 def _quartile_thresholds(items: Sequence) -> tuple[float, float, float]:
@@ -242,7 +243,7 @@ def _format_session_duration(session: dict, now_ts: float) -> str:
 
 
 def from_usage_stats(
-    stats, now: float | None = None, ticker_offset: float = 0.0,
+    stats, now: float | None = None, ticker_offset: float = 0.0, opacity: float = 1.0,
 ) -> SkinData:
     """Project a ``UsageStats`` snapshot onto the handoff's field layout."""
     now_ts = now if now is not None else time.time()
@@ -323,4 +324,5 @@ def from_usage_stats(
         subagent_count=int(getattr(stats, "active_subagent_count", 0) or 0),
         ticker_items=ticker_items,
         ticker_offset=float(ticker_offset),
+        opacity=float(opacity),
     )
