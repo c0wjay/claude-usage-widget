@@ -347,6 +347,13 @@ class UsageOverlay(QWidget):
         self._ticker_timer = QTimer(self)
         self._ticker_timer.setInterval(TICKER_FRAME_INTERVAL_MS)
         self._ticker_timer.timeout.connect(self._advance_ticker)
+
+        # Periodic Topmost Z-order keepalive timer (every 30 seconds)
+        # Fixes Windows DWM dropping HWND_TOPMOST over long runtimes or focus shifts.
+        self._topmost_timer = QTimer(self)
+        self._topmost_timer.setInterval(60000)
+        self._topmost_timer.timeout.connect(self._reassert_topmost)
+        self._topmost_timer.start()
         # NB: there is NO separate news-refresh timer. The collector
         # already fetches news_items (with 1h on-disk cache) on every
         # stats-refresh tick, and delivers them via the existing
@@ -750,6 +757,34 @@ class UsageOverlay(QWidget):
             self.show()
         self._move_to_default_position()
 
+    def _reassert_topmost(self) -> None:
+        """Forcefully re-assert HWND_TOPMOST Z-order on Windows via Native Win32 API.
+
+        Over long runtimes, focus transitions, or popup dialog events, Windows DWM
+        can drop the HWND_TOPMOST Z-order flag from Qt.Tool / WS_EX_NOACTIVATE windows.
+        This method uses native Win32 SetWindowPos to force DWM to bring the window
+        back to the absolute topmost Z-order layer without stealing user focus.
+        """
+        if not self._always_on_top:
+            return
+        self.raise_()
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = int(self.winId())
+                if hwnd:
+                    HWND_TOPMOST = -1
+                    SWP_NOSIZE = 0x0001
+                    SWP_NOMOVE = 0x0002
+                    SWP_NOACTIVATE = 0x0010
+                    SWP_SHOWWINDOW = 0x0040
+                    ctypes.windll.user32.SetWindowPos(
+                        hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+                    )
+            except Exception:
+                pass
+
     def is_always_on_top(self) -> bool:
         """Return whether the OSD is pinned above other windows."""
         return self._always_on_top
@@ -768,7 +803,12 @@ class UsageOverlay(QWidget):
         else:
             self.unsetCursor()
 
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self._reassert_topmost()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._reassert_topmost()
         if event.button() == Qt.LeftButton:
             pos = event.position().toPoint()
             edge = _get_resize_edge(pos, QRectF(0, 0, self.width(), self.height()))

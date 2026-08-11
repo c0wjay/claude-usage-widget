@@ -1837,6 +1837,7 @@ class ClaudeUsageApp(QObject):
         target.show()
         target.raise_()
         target.activateWindow()
+        self.overlay._reassert_topmost()
 
     def _generate_weekly_report(self, snapshot: UsageStats) -> None:
         try:
