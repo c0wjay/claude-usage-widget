@@ -18,7 +18,13 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 
-from ._paint import draw_text, draw_ticker_marquee, hex_to_qcolor, mono_font
+from ._paint import (
+    draw_outlined_text,
+    draw_text,
+    draw_ticker_marquee,
+    hex_to_qcolor,
+    mono_font,
+)
 
 
 WANTS_TICKER = True
@@ -160,17 +166,23 @@ def paint_osd(p: QPainter, rect: QRectF, data, scale: float = 1.0) -> None:
         # label left (foreground)
         draw_text(p, x, yy + fm_s.ascent(),
                   label, hex_to_qcolor(t["ink"], fg_op), small_f, letter_spacing_px=2 * s)
-        # reset time next to label, aligned at fixed X offset (foreground)
+        # reset time next to label, aligned at fixed X offset (foreground with white outline)
         if time_str:
             reset_txt = f"{time_str}"
             t_color = hex_to_qcolor(t["accent"], fg_op) if is_urgent else hex_to_qcolor(t["ink"], fg_op)
-            draw_text(p, x + 65 * s, yy + fm_time.ascent() - 1 * s,
-                      reset_txt, t_color, time_f, letter_spacing_px=1 * s)
-        # % right (foreground)
+            draw_outlined_text(
+                p, x + 65 * s, yy + fm_time.ascent() - 1 * s,
+                reset_txt, t_color, hex_to_qcolor("#ffffff", fg_op),
+                2.5 * s, time_f, letter_spacing_px=1 * s,
+            )
+        # % right (foreground with white outline)
         pct_txt = f"{int(pct * 100)}%"
         pw = QFontMetrics(big_f).horizontalAdvance(pct_txt)
-        draw_text(p, x + w - pw, yy + fm_b.ascent(),
-                  pct_txt, hex_to_qcolor(t["ink"], fg_op), big_f)
+        draw_outlined_text(
+            p, x + w - pw, yy + fm_b.ascent(),
+            pct_txt, hex_to_qcolor(t["ink"], fg_op), hex_to_qcolor("#ffffff", fg_op),
+            3.0 * s, big_f,
+        )
 
         # rect bar empty track & border -> background element (bg_op)
         ybar = yy + fm_b.height() + 2 * s

@@ -7,7 +7,7 @@ Every helper assumes the QPainter has already been set up with antialias:
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 
 
 def hex_to_qcolor(hex_str: str, alpha: float = 1.0) -> QColor:
@@ -55,6 +55,32 @@ def draw_text(
     p.setFont(font)
     p.setPen(color)
     p.drawText(QPointF(x, y), text)
+    return QFontMetrics(font).horizontalAdvance(text)
+
+
+def draw_outlined_text(
+    p: QPainter,
+    x: float,
+    y: float,
+    text: str,
+    color: QColor,
+    outline_color: QColor,
+    outline_width: float,
+    font: QFont,
+    letter_spacing_px: float = 0.0,
+) -> float:
+    """Draw text with an outline stroke behind the filled text."""
+    if letter_spacing_px:
+        font = QFont(font)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing_px)
+    path = QPainterPath()
+    path.addText(QPointF(x, y), font, text)
+    pen = QPen(outline_color)
+    pen.setWidthF(outline_width)
+    pen.setJoinStyle(Qt.RoundJoin)
+    pen.setCapStyle(Qt.RoundCap)
+    p.strokePath(path, pen)
+    p.fillPath(path, QBrush(color))
     return QFontMetrics(font).horizontalAdvance(text)
 
 
