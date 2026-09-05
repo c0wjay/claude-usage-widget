@@ -145,9 +145,27 @@ class TestCalculateCostUnknownModel:
         assert _approx(result["output"], 50.0)
         assert not any(issubclass(w.category, UserWarning) for w in caught)
 
+    def test_fable_5_1_is_tabled_with_reduced_cache_read(self):
+        """Fable 5.1 is $10/$50 with cache read reduced to $0.25 (75% cut)."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = calculate_cost(
+                "claude-fable-5-1",
+                input_tokens=1_000_000,
+                output_tokens=1_000_000,
+                cache_read=1_000_000,
+                cache_creation=1_000_000,
+            )
+        assert _approx(result["input"], 10.0)
+        assert _approx(result["output"], 50.0)
+        assert _approx(result["cache_read"], 0.25)
+        assert _approx(result["cache_creation"], 12.50)
+        assert _approx(result["total"], 72.75)
+        assert not any(issubclass(w.category, UserWarning) for w in caught)
+
     def test_unknown_fable_falls_back_to_fable_pricing(self):
         """A future Fable point release resolves to the Fable tier, not Sonnet."""
-        result = calculate_cost("claude-fable-5-1", 1_000_000, 0)
+        result = calculate_cost("claude-fable-5-2", 1_000_000, 0)
         assert _approx(result["input"], 10.0)
 
     def test_unknown_haiku_falls_back_to_haiku_pricing(self):

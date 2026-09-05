@@ -68,6 +68,14 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
         "cache_read": 0.30,
         "cache_creation": 3.75,
     },
+    # Fable 5.1 (September 2026): $10 input / $50 output. Cache read price
+    # was cut 75% from $1.00 to $0.25 per million tokens.
+    "claude-fable-5-1": {
+        "input": 10.0,
+        "output": 50.0,
+        "cache_read": 0.25,
+        "cache_creation": 12.50,
+    },
     # Fable 5: $10 input / $50 output. A distinct premium tier — pricier than
     # Sonnet, so it MUST be tabled explicitly; without this it fell through the
     # family fallback to Sonnet ($3/$15) and under-reported Fable cost ~3.3x.
@@ -114,7 +122,7 @@ _FALLBACK_MODEL = "claude-sonnet-4-6"
 # points at the most recent known member of that family.
 _FAMILY_FALLBACK: Dict[str, str] = {
     "opus": "claude-opus-5",
-    "fable": "claude-fable-5",
+    "fable": "claude-fable-5-1",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5-20251001",
 }
