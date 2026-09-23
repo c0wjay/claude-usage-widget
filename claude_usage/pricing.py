@@ -8,7 +8,7 @@ Sonnet pricing so billing never crashes a running collector).
 
 Cache rates follow the standard Anthropic formula:
     cache_read     = input_rate × 0.1   (10% of input cost for reads)
-    cache_creation = input_rate × 1.25  (25% markup for cache writes)
+    cache_creation = input_rate × 2.0   (1-hour cache write: 2x input rate for Claude Code)
 """
 
 from __future__ import annotations
@@ -19,14 +19,21 @@ from typing import Dict, Mapping
 # Prices are USD per 1,000,000 tokens.
 # Source: https://www.anthropic.com/pricing (July 2026)
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
-    # Opus 5 (2026): $5 input, $25 output.
+    # Opus 5.5 (September 2026): $4 input, $20 output, $0.20 cache read, $8.00 cache creation (1h TTL).
+    "claude-opus-5-5": {
+        "input": 4.0,
+        "output": 20.0,
+        "cache_read": 0.20,
+        "cache_creation": 8.0,
+    },
+    # Opus 5 (2026): $5 input, $25 output, $10.00 cache creation (1h TTL).
     "claude-opus-5": {
         "input": 5.0,
         "output": 25.0,
         "cache_read": 0.50,
-        "cache_creation": 6.25,
+        "cache_creation": 10.0,
     },
-    # Opus 4.8: $5 input, $25 output (same standard tier as 4.7). Note: Opus
+    # Opus 4.8: $5 input, $25 output. Note: Opus
     # "fast mode" bills at $10/$50, but Claude Code writes the same model id
     # for both, so we price the standard rate (fast mode isn't distinguishable
     # from the usage record alone).
@@ -34,7 +41,7 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
         "input": 5.0,
         "output": 25.0,
         "cache_read": 0.50,
-        "cache_creation": 6.25,
+        "cache_creation": 10.0,
     },
     # Opus 4.7 (July 2026): $5 input, $25 output — consistent across
     # Anthropic API, Bedrock, Vertex AI, and Foundry.
@@ -42,31 +49,30 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
         "input": 5.0,
         "output": 25.0,
         "cache_read": 0.50,
-        "cache_creation": 6.25,
+        "cache_creation": 10.0,
     },
     # Opus 4.6 uses the same pricing tier as 4.7.
     "claude-opus-4-6": {
         "input": 5.0,
         "output": 25.0,
         "cache_read": 0.50,
-        "cache_creation": 6.25,
+        "cache_creation": 10.0,
     },
     # Sonnet 5 (launched 2026-06-30, the new Free/Pro default): introductory
     # $2 input / $10 output through 2026-08-31, then reverts to the standard
-    # $3/$15 tier. UPDATE these two rates to 3.0/10.0→15.0 after the intro
-    # window ends (cache rates scale off input: read = input×0.1, write ×1.25).
+    # $3/$15 tier. (cache_creation = 2.0 × 2.0 = 4.0 for 1h TTL).
     "claude-sonnet-5": {
         "input": 2.0,
         "output": 10.0,
         "cache_read": 0.20,
-        "cache_creation": 2.50,
+        "cache_creation": 4.0,
     },
-    # Sonnet 4.6: $3 input, $15 output (standard mid-tier pricing).
+    # Sonnet 4.6: $3 input, $15 output (standard mid-tier pricing, $6.00 1h cache creation).
     "claude-sonnet-4-6": {
         "input": 3.0,
         "output": 15.0,
         "cache_read": 0.30,
-        "cache_creation": 3.75,
+        "cache_creation": 6.0,
     },
     # Fable 5.1 (September 2026): $10 input / $50 output. Cache read price
     # was cut 75% from $1.00 to $0.25 per million tokens.
@@ -74,7 +80,7 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
         "input": 10.0,
         "output": 50.0,
         "cache_read": 0.25,
-        "cache_creation": 12.50,
+        "cache_creation": 20.0,
     },
     # Fable 5: $10 input / $50 output. A distinct premium tier — pricier than
     # Sonnet, so it MUST be tabled explicitly; without this it fell through the
@@ -83,14 +89,14 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
         "input": 10.0,
         "output": 50.0,
         "cache_read": 1.00,
-        "cache_creation": 12.50,
+        "cache_creation": 20.0,
     },
-    # Haiku 4.5: $1 input, $5 output (entry-tier pricing).
+    # Haiku 4.5: $1 input, $5 output (entry-tier pricing, $2.00 1h cache creation).
     "claude-haiku-4-5-20251001": {
         "input": 1.0,
         "output": 5.0,
         "cache_read": 0.10,
-        "cache_creation": 1.25,
+        "cache_creation": 2.0,
     },
     # Claude Code internal bookkeeping entries (compact summaries, sidechain
     # context, auto-generated placeholders) — not billed to the user, so we
@@ -121,7 +127,7 @@ _FALLBACK_MODEL = "claude-sonnet-4-6"
 # tier instead of being silently under-reported at Sonnet rates. Each value
 # points at the most recent known member of that family.
 _FAMILY_FALLBACK: Dict[str, str] = {
-    "opus": "claude-opus-5",
+    "opus": "claude-opus-5-5",
     "fable": "claude-fable-5-1",
     "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5-20251001",

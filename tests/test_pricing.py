@@ -24,7 +24,7 @@ class TestMODEL_PRICING:
         assert p["input"] == 5.0
         assert p["output"] == 25.0
         assert p["cache_read"] == 0.50
-        assert p["cache_creation"] == 6.25
+        assert p["cache_creation"] == 10.0
 
     def test_opus_4_7_matches_4_6(self):
         assert MODEL_PRICING["claude-opus-4-7"] == MODEL_PRICING["claude-opus-4-6"]
@@ -34,14 +34,14 @@ class TestMODEL_PRICING:
         assert p["input"] == 3.0
         assert p["output"] == 15.0
         assert p["cache_read"] == 0.30
-        assert p["cache_creation"] == 3.75
+        assert p["cache_creation"] == 6.0
 
     def test_haiku_4_5_rates(self):
         p = MODEL_PRICING["claude-haiku-4-5-20251001"]
         assert p["input"] == 1.0
         assert p["output"] == 5.0
         assert p["cache_read"] == 0.10
-        assert p["cache_creation"] == 1.25
+        assert p["cache_creation"] == 2.0
 
 
 class TestCalculateCostKnownModels:
@@ -69,7 +69,7 @@ class TestCalculateCostKnownModels:
         assert _approx(result["input"], 500_000 * 3.0 / 1_000_000)  # 1.50
         assert _approx(result["output"], 200_000 * 15.0 / 1_000_000)  # 3.00
         assert _approx(result["cache_read"], 100_000 * 0.30 / 1_000_000)  # 0.03
-        assert _approx(result["cache_creation"], 50_000 * 3.75 / 1_000_000)  # 0.1875
+        assert _approx(result["cache_creation"], 50_000 * 6.0 / 1_000_000)  # 0.30
         assert _approx(
             result["total"],
             result["input"]
@@ -106,19 +106,37 @@ class TestCalculateCostUnknownModel:
         calculate_cost("totally-made-up", 1, 2, 3, 4)
 
     def test_unknown_opus_falls_back_to_opus_pricing(self):
-        """A not-yet-tabled Opus release (e.g. claude-opus-5-2) must be billed
-        at the Opus tier ($5/M input, $25/M output), NOT the generic Sonnet
-        fallback — otherwise Opus usage is silently under-reported by ~40%."""
+        """A not-yet-tabled Opus release (e.g. claude-opus-5-9) must be billed
+        at the current Opus tier ($4/M input, $20/M output), NOT the generic Sonnet
+        fallback — otherwise Opus usage is silently under-reported."""
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = calculate_cost("claude-opus-5-2", 1_000_000, 1_000_000)
-        assert _approx(result["input"], 5.0)
-        assert _approx(result["output"], 25.0)
+            result = calculate_cost("claude-opus-5-9", 1_000_000, 1_000_000)
+        assert _approx(result["input"], 4.0)
+        assert _approx(result["output"], 20.0)
         # The warning should name the Opus family fallback, not Sonnet.
-        assert any("claude-opus-5" in str(w.message) for w in caught)
+        assert any("claude-opus-5-5" in str(w.message) for w in caught)
+
+    def test_opus_5_5_is_tabled_at_reduced_rates_without_warning(self):
+        """claude-opus-5-5 is $4/$20 with cache read at $0.20, 1h cache creation at $8.0, no warning."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = calculate_cost(
+                "claude-opus-5-5",
+                input_tokens=1_000_000,
+                output_tokens=1_000_000,
+                cache_read=1_000_000,
+                cache_creation=1_000_000,
+            )
+        assert _approx(result["input"], 4.0)
+        assert _approx(result["output"], 20.0)
+        assert _approx(result["cache_read"], 0.20)
+        assert _approx(result["cache_creation"], 8.0)
+        assert _approx(result["total"], 32.20)
+        assert not any(issubclass(w.category, UserWarning) for w in caught)
 
     def test_opus_5_is_tabled_at_opus_rates_without_warning(self):
-        """claude-opus-5 is now an exact table entry: $5/$25, no warning."""
+        """claude-opus-5 is an exact table entry: $5/$25, no warning."""
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             result = calculate_cost("claude-opus-5", 1_000_000, 1_000_000)
@@ -146,7 +164,7 @@ class TestCalculateCostUnknownModel:
         assert not any(issubclass(w.category, UserWarning) for w in caught)
 
     def test_fable_5_1_is_tabled_with_reduced_cache_read(self):
-        """Fable 5.1 is $10/$50 with cache read reduced to $0.25 (75% cut)."""
+        """Fable 5.1 is $10/$50 with cache read reduced to $0.25 (75% cut) and 1h cache creation at $20.0."""
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             result = calculate_cost(
@@ -159,8 +177,8 @@ class TestCalculateCostUnknownModel:
         assert _approx(result["input"], 10.0)
         assert _approx(result["output"], 50.0)
         assert _approx(result["cache_read"], 0.25)
-        assert _approx(result["cache_creation"], 12.50)
-        assert _approx(result["total"], 72.75)
+        assert _approx(result["cache_creation"], 20.0)
+        assert _approx(result["total"], 80.25)
         assert not any(issubclass(w.category, UserWarning) for w in caught)
 
     def test_unknown_fable_falls_back_to_fable_pricing(self):
@@ -244,7 +262,7 @@ class TestCacheSavings:
             "claude-opus-4-6", 0, 0, cache_read=0, cache_creation=1_000_000
         )
         assert _approx(result["cache_savings"], 0.0)
-        assert _approx(result["cache_creation"], 6.25)
+        assert _approx(result["cache_creation"], 10.0)
 
     def test_zero_cache_read_zero_savings(self):
         result = calculate_cost("claude-opus-4-6", 1_000_000, 1_000_000)
